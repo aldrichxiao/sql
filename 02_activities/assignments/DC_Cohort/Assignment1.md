@@ -209,5 +209,9 @@ Consider, for example, concepts of fariness, inequality, social structures, marg
 
 
 ```
-Your thoughts...
+Databases governing day-to-day life are not neutral records, but systems where social, political, and technical choices are made at once. Relational databases use rigid schemas to tie records together under strict validation rules, so that technical settings nobody reviewed decide who can open a bank account, vote, or buy a bus ticket. In doing so, schemas quietly turn designers' social assumptions into hard rules. Globally, for instance, databases have long coded gender as a binary field, assuming gender has only two values and must be tracked for identification.
+
+I encountered these embedded values directly when I moved to Canada and applied for a credit card. Although I had years of on-time payments and active bank accounts elsewhere, Canadian credit bureaus do not link to foreign financial registries. In the bureau's schema, the absence of a domestic record was coded identically to having zero financial history, automatically flagging me as an unverified risk. Because the database equated trustworthiness strictly with data accumulated inside national borders, my actual payment record disappeared, forcing me into starter credit limits until I generated local data points the system recognized.
+
+Rida Qadri shows how severe these constraints become in Pakistan's NADRA system. NADRA's schema enforces biological kinship, assuming every citizen belongs to a male-headed household with two married parents. People outside this norm face distortive workarounds: a mother's out-of-date marital status blocks her adult son's ID, unmarried mothers are asked for fake marriage certificates, orphans are assigned to strangers through random "database adoptions," and khawaja sira disciples must register their gurus as parents. Designers build rigid schemas for real operational reasons—reliable data entry, fast searches, consistency, and verifying citizenship against fraud. Yet when standardization and state security outweigh flexibility, databases end up policing whose identity counts as real.
 ```
