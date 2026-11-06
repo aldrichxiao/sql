@@ -23,8 +23,16 @@ Edit the appropriate columns -- you're making two edits -- and the NULL rows wil
 All the other rows will remain the same. */
 --QUERY 1
 
-
-
+-- Step 1: find the NULLs (product 14 has a NULL size and a NULL qty type, product 15 a NULL qty type)
+SELECT product_id, product_name, product_size, product_qty_type
+FROM product
+WHERE product_size IS NULL OR product_qty_type IS NULL;
+ 
+-- Step 2: the fixed list. Concatenating a NULL with || yields NULL, so the two
+-- NULL columns are wrapped in COALESCE before concatenation.
+SELECT
+product_name || ', ' || COALESCE(product_size, '') || ' (' || COALESCE(product_qty_type, 'unit') || ')' AS product_description
+FROM product;
 
 --END QUERY
 
@@ -41,8 +49,21 @@ HINT: One of these approaches uses ROW_NUMBER() and one uses DENSE_RANK().
 Filter the visits to dates before April 29, 2022. */
 --QUERY 2
 
+-- One row per customer visit (unique customer / market_date pairs), numbered in date order.
+-- The alternative is DENSE_RANK() OVER (PARTITION BY customer_id ORDER BY market_date)
+-- directly on customer_purchases, which keeps every purchase row and repeats the visit number
+-- across purchases made on the same date.
 
-
+SELECT
+    customer_id,
+    market_date,
+    ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY market_date) AS visit_number
+FROM (
+    SELECT DISTINCT customer_id, market_date
+    FROM customer_purchases
+    WHERE market_date < '2022-04-29'
+) AS visits
+ORDER BY customer_id, visit_number;
 
 --END QUERY
 
@@ -53,8 +74,23 @@ only the customer’s most recent visit.
 HINT: Do not use the previous visit dates filter. */
 --QUERY 3
 
+-- The CTE is the reversed-numbering query (ORDER BY market_date DESC, no date filter);
+-- the outer query keeps only visits_ago = 1, i.e. each customer's most recent visit.
 
-
+WITH visits_reversed AS (
+    SELECT
+        customer_id,
+        market_date,
+        ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY market_date DESC) AS visits_ago
+    FROM (
+        SELECT DISTINCT customer_id, market_date
+        FROM customer_purchases
+    ) AS visits
+)
+SELECT customer_id, market_date, visits_ago
+FROM visits_reversed
+WHERE visits_ago = 1
+ORDER BY customer_id;
 
 --END QUERY
 
@@ -66,8 +102,21 @@ You can make this a running count by including an ORDER BY within the PARTITION 
 Filter the visits to dates before April 29, 2022. */
 --QUERY 4
 
+-- Total count per customer / product, repeated on every purchase row.
+-- For a running count instead, add ORDER BY market_date, transaction_time inside the OVER ().
 
-
+SELECT
+    customer_id,
+    product_id,
+    market_date,
+    vendor_id,
+    quantity,
+    cost_per_quantity,
+    transaction_time,
+    COUNT(*) OVER (PARTITION BY customer_id, product_id) AS product_purchase_count
+FROM customer_purchases
+WHERE market_date < '2022-04-29'
+ORDER BY customer_id, product_id, market_date, transaction_time;
 
 --END QUERY
 
@@ -85,8 +134,17 @@ Remove any trailing or leading whitespaces. Don't just use a case statement for 
 Hint: you might need to use INSTR(product_name,'-') to find the hyphens. INSTR will help split the column. */
 --QUERY 5
 
+-- INSTR finds the hyphen position (0 when absent), SUBSTR takes everything after it,
+-- TRIM strips the surrounding spaces; names without a hyphen fall through to NULL.
 
-
+SELECT
+    product_name,
+    CASE
+        WHEN INSTR(product_name, '-') > 0
+        THEN TRIM(SUBSTR(product_name, INSTR(product_name, '-') + 1))
+        ELSE NULL
+    END AS description
+FROM product;
 
 --END QUERY
 
@@ -94,8 +152,19 @@ Hint: you might need to use INSTR(product_name,'-') to find the hyphens. INSTR w
 /* 2. Filter the query to show any product_size value that contain a number with REGEXP. */
 --QUERY 6
 
+-- Same query, filtered to sizes that contain at least one digit.
+-- (REGEXP needs a regexp() function: DB Browser for SQLite provides one, the bare sqlite3 shell does not.)
 
-
+SELECT
+    product_name,
+    product_size,
+    CASE
+        WHEN INSTR(product_name, '-') > 0
+        THEN TRIM(SUBSTR(product_name, INSTR(product_name, '-') + 1))
+        ELSE NULL
+    END AS description
+FROM product
+WHERE product_size REGEXP '[0-9]';
 
 --END QUERY
 
@@ -111,8 +180,35 @@ HINT: There are a possibly a few ways to do this query, but if you're struggling
 with a UNION binding them. */
 --QUERY 7
 
-
-
+WITH daily_sales AS (
+    -- 1) total sales per market date
+    SELECT
+        market_date,
+        ROUND(SUM(quantity * cost_per_quantity), 2) AS total_sales
+    FROM customer_purchases
+    GROUP BY market_date
+),
+ranked_days AS (
+    -- 2) rank the days from both ends (RANK keeps ties, so tied extremes would all show)
+    SELECT
+        market_date,
+        total_sales,
+        RANK() OVER (ORDER BY total_sales DESC) AS best_rank,
+        RANK() OVER (ORDER BY total_sales ASC)  AS worst_rank
+    FROM daily_sales
+)
+-- 3) best day UNION worst day
+SELECT market_date, total_sales, 'highest' AS sales_day
+FROM ranked_days
+WHERE best_rank = 1
+ 
+UNION
+ 
+SELECT market_date, total_sales, 'lowest' AS sales_day
+FROM ranked_days
+WHERE worst_rank = 1
+ 
+ORDER BY total_sales DESC;
 
 --END QUERY
 
@@ -132,8 +228,32 @@ How many customers are there (y).
 Before your final group by you should have the product of those two queries (x*y).  */
 --QUERY 8
 
+-- x = 8 distinct vendor/product pairs in vendor_inventory, y = 26 customers,
+-- so the CROSS JOIN subquery has 8 * 26 = 208 rows before the GROUP BY collapses it to 8.
 
-
+SELECT
+    vendor_name,
+    product_name,
+    ROUND(SUM(5 * original_price), 2) AS possible_revenue
+FROM (
+    SELECT
+        vp.vendor_name,
+        vp.product_name,
+        vp.original_price,
+        c.customer_id
+    FROM (
+        SELECT DISTINCT
+            v.vendor_name,
+            p.product_name,
+            vi.original_price
+        FROM vendor_inventory AS vi
+        JOIN vendor  AS v ON v.vendor_id  = vi.vendor_id
+        JOIN product AS p ON p.product_id = vi.product_id
+    ) AS vp
+    CROSS JOIN customer AS c
+) AS every_customer
+GROUP BY vendor_name, product_name
+ORDER BY vendor_name, product_name;
 
 --END QUERY
 
@@ -145,8 +265,14 @@ It should use all of the columns from the product table, as well as a new column
 Name the timestamp column `snapshot_timestamp`. */
 --QUERY 9
 
-
-
+DROP TABLE IF EXISTS product_units;
+ 
+CREATE TABLE product_units AS
+SELECT
+    *,
+    CURRENT_TIMESTAMP AS snapshot_timestamp
+FROM product
+WHERE product_qty_type = 'unit';
 
 --END QUERY
 
@@ -155,8 +281,10 @@ Name the timestamp column `snapshot_timestamp`. */
 This can be any product you desire (e.g. add another record for Apple Pie). */
 --QUERY 10
 
+-- Wait at least one second after QUERY 9 so the new snapshot_timestamp is later than the first one.
 
-
+INSERT INTO product_units (product_id, product_name, product_size, product_category_id, product_qty_type, snapshot_timestamp)
+VALUES (7, 'Apple Pie', '10"', 3, 'unit', CURRENT_TIMESTAMP);
 
 --END QUERY
 
@@ -167,8 +295,15 @@ This can be any product you desire (e.g. add another record for Apple Pie). */
 HINT: If you don't specify a WHERE clause, you are going to have a bad time.*/
 --QUERY 11
 
+-- Remove the Apple Pie row(s) older than the newest Apple Pie snapshot.
 
-
+DELETE FROM product_units
+WHERE product_id = 7
+  AND snapshot_timestamp < (
+        SELECT MAX(snapshot_timestamp)
+        FROM product_units
+        WHERE product_id = 7
+  );
 
 --END QUERY
 
@@ -191,8 +326,24 @@ Finally, make sure you have a WHERE statement to update the right row,
 When you have all of these components, you can run the update statement. */
 --QUERY 12
 
+ALTER TABLE product_units
+ADD current_quantity INT;
+ 
+-- The correlated subquery returns one column: the quantity on the latest market_date
+-- for this row's product (product_units.product_id). Products that never appear in
+-- vendor_inventory get NULL from the subquery, which COALESCE turns into 0.
 
-
+UPDATE product_units
+SET current_quantity = COALESCE(
+    (
+        SELECT vi.quantity
+        FROM vendor_inventory AS vi
+        WHERE vi.product_id = product_units.product_id
+        ORDER BY vi.market_date DESC
+        LIMIT 1
+    ),
+    0
+);
 
 --END QUERY
 

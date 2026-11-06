@@ -57,7 +57,38 @@ The store wants to keep customer addresses. Propose two architectures for the CU
 **HINT:** search type 1 vs type 2 slowly changing dimensions. 
 
 ```
-Your answer...
+Two designs for CUSTOMER_ADDRESS
+
+Design A: overwrite (one row per customer)
+
+CUSTOMER_ADDRESS
+----------------
+customer_id        PK, FK -> CUSTOMER
+street_address
+city
+province
+postal_code
+country
+last_updated_key   FK -> DATE
+
+When a customer moves, the row is UPDATEd in place: the old street, city and postal code are replaced and only last_updated_key records that something changed. The table stays small (exactly one row per customer) and always shows the current address, but the previous address is lost, so the store cannot answer "where did we ship order 123 last year?". This is a Type 1 slowly changing dimension.
+
+Design B: retain changes (one row per address version)
+
+CUSTOMER_ADDRESS
+----------------
+customer_address_id  PK (surrogate key)
+customer_id          FK -> CUSTOMER
+street_address
+city
+province
+postal_code
+country
+valid_from_key       FK -> DATE
+valid_to_key         FK -> DATE, NULL while the row is current
+is_current           boolean
+
+When a customer moves, nothing is overwritten: the current row is closed by setting valid_to_key to the move date and is_current to 0, and a new row is INSERTed with the new address, valid_from_key = move date, valid_to_key = NULL and is_current = 1. A customer therefore has one current row and any number of historical rows (customer_id, valid_from_key is unique). ORDER should reference customer_address_id, so every order keeps the address that was in force when it was placed. The cost is more rows and the need to filter on is_current = 1 (or on a date range) to get the current address. This is a Type 2 slowly changing dimension.
 ```
 
 ***
@@ -193,5 +224,9 @@ Consider, for example, concepts of labour, bias, LLM proliferation, moderating c
 
 
 ```
-Your thoughts...
+Vicki Boykis’s essay exposes a central ethical paradox at the intersection of technology and society: the illusion of autonomous machine intelligence rests entirely on invisible human labor and subjective human judgment. Tracing the genealogy of modern neural networks reveals that foundational datasets like ImageNet were assembled by tens of thousands of Amazon Mechanical Turk workers labeling images for cents, layered atop lexical databases like WordNet and the 1960s Brown Corpus that relied on manual classification by students and uncredited spouses. Because every tier of a training taxonomy is "infused with politics," neural networks do not generate objective truth; instead, they institutionalize the historical biases of their human creators.
+
+As artificial intelligence and large language models proliferate, this dependency creates a troubling recursive loop: human judgments build the models, which subsequently govern human lives. The ImageNet Roulette project demonstrated how flawed classifications creep into commercial and law enforcement facial recognition, assigning unsound and offensive labels to individuals. As society increasingly defers to algorithmic outputs as neutral authority, entrenched linguistic prejudices actively reshape social norms and human self-perception. Moreover, moderating this content underscores the limits of automation: purging 1,593 offensive categories from ImageNet’s "person" subtree required researchers to intervene by hand once again.
+
+This tension between human labor and machine capability also foreshadows profound socioeconomic disruption in physical industries. Currently, robots cannot sew garments because fabric elasticity, complex tactile alignment, and daily fast-fashion style turnovers defy efficient programming, meaning every shirt is still stitched by a person. Yet, if advances in robotics and AI overcome these sensorimotor bottlenecks within the next decade, human’s comparative advantage will erode. Transitioning from exploiting invisible AI agents who train neural networks to displacing millions of garment workers worldwide will trigger acute socioeconomic crises, making apparel manufacturing a critical bellwether for the future of labor.
 ```
